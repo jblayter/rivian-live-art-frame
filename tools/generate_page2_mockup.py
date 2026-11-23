@@ -15,6 +15,7 @@ from PIL import Image, ImageDraw
 
 from generate_mockup import (
     CONFIG,
+    VEHICLE,
     TELEMETRY,
     draw_aa_polyline,
     draw_blueprint_frame,
@@ -26,7 +27,7 @@ from generate_mockup import (
 )
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUTPUT_FILE = os.path.join(REPO_ROOT, "local", "previews", "r2_page2_history_mockup.png")
+OUTPUT_FILE = os.path.join(REPO_ROOT, "local", "previews", f"{VEHICLE}_page2_history_mockup.png")
 
 
 def draw_dashed_line(
@@ -741,7 +742,7 @@ def build_base_page2() -> Image.Image:
             size=hdr_cfg.get("logo_size", 74),
             fill=0,
         )
-        draw_crisp_text(draw, (hdr_cfg["title_x"], hdr_cfg["title_y"]), "RIVIAN R2", font_title, fill=0)
+        draw_crisp_text(draw, (hdr_cfg["title_x"], hdr_cfg["title_y"]), TELEMETRY["vehicleName"], font_title, fill=0)
         draw_crisp_text(
             draw,
             (hdr_cfg["title_x"], hdr_cfg["subtitle_y"]),
@@ -906,7 +907,7 @@ def main() -> None:
         fill=0,
     )
 
-    draw_crisp_text(draw, (hdr_cfg["title_x"], hdr_cfg["title_y"]), "RIVIAN R2", font_title, fill=0)
+    draw_crisp_text(draw, (hdr_cfg["title_x"], hdr_cfg["title_y"]), TELEMETRY["vehicleName"], font_title, fill=0)
     draw_crisp_text(
         draw,
         (hdr_cfg["title_x"], hdr_cfg["subtitle_y"]),
@@ -957,7 +958,7 @@ def main() -> None:
     draw_inkplate_battery_status(draw, 1164, ground_y + 8, pct=81, font=font_datum, colors=colors, draw_fill=True)
 
     font_footer = get_architect_font(font_cfg.get("ground_footer", 19), bold=True)
-    footer_text = "RIVIAN R2  //  BORN ON: 2026-01-01"
+    footer_text = f"{TELEMETRY['vehicleName']}  //  BORN ON: 2026-01-01"
     draw_crisp_text(draw, (38, ground_y + 9), footer_text, font_footer, fill=0)
 
     os.makedirs(os.path.dirname(os.path.abspath(OUTPUT_FILE)), exist_ok=True)

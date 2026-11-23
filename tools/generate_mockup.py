@@ -13,6 +13,8 @@ import json
 import os
 import sys
 import requests
+
+import vehicles
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from fetch_telemetry import (
@@ -244,6 +246,21 @@ CONFIG = {
         },
     }
 }
+
+# ==============================================================================
+# 2b. ACTIVE VEHICLE
+# The values above describe the R2. Other vehicles are profiles in
+# tools/vehicles.py, selected with `--vehicle r1t`, FRAME_VEHICLE=r1t, or
+# "vehicle_model" in config.json.
+# ==============================================================================
+VEHICLE = vehicles.selected_vehicle()
+_profile = vehicles.profile(VEHICLE)
+TELEMETRY["vehicleName"] = _profile["name"]
+CONFIG["charger_card_first"] = bool(_profile.get("charger_card_first", False))
+CONFIG["output_file"] = f"local/previews/{VEHICLE}_dashboard_mockup.png"
+for _key in ("wireframe_file", "terminal_dots"):
+    if _key in _profile:
+        CONFIG[_key] = _profile[_key]
 
 # ==============================================================================
 # 3. ARCHITECTURAL FONT LOADER
@@ -774,6 +791,14 @@ def draw_metric_cards(draw: ImageDraw.ImageDraw, data: dict, colors: dict, cfg: 
         ("battery12v",      "04 // BATTERY STATE", f"{batt_temp_f}°F",                      f"12V STATUS: {data['battery12VState']}"),
         ("charger",         "05 // CHARGER",       charger_hero,                            charger_sub),
     ]
+    # Front charge port (e.g. R1T): swap the first and last cards and renumber them
+    battery_idx = 0
+    if CONFIG.get("charger_card_first", False):
+        battery_idx = 4
+        cards[0], cards[4] = (
+            ("charger", "01 // CHARGER", charger_hero, charger_sub),
+            (None, "05 // BATTERY LEVEL", cards[0][2], cards[0][3]),
+        )
 
     font_cfg = CONFIG.get("fonts", {})
     font_sec = get_architect_font(font_cfg.get("card_header", 18), bold=True)
@@ -823,7 +848,7 @@ def draw_metric_cards(draw: ImageDraw.ImageDraw, data: dict, colors: dict, cfg: 
         draw_crisp_text(draw, (cx + 10, y + 8), label, font_sec, fill=colors["dark_gray"])
 
         # Card-specific rendering: Card 1 has inline bargraph; Card 4 has inline avg + min/max temps
-        if i == 0:
+        if i == battery_idx:
             draw_battery_card_contents(draw, cx, y, w, h, data, colors)
         elif i == 3:
             draw_battery_state_card_contents(draw, cx, y, w, h, data, colors)
@@ -1036,7 +1061,7 @@ def main():
         wf_path = os.path.join(repo_root, wf_path)
 
     print("=" * 65)
-    print("Rivian R2 Living Art Frame - Architectural Blueprint Generator")
+    print(f"Rivian Living Art Frame - Architectural Blueprint Generator ({TELEMETRY['vehicleName']})")
     print(f"Canvas: {w}x{h} (Inkplate 10 Grayscale) | Font: Neucha")
     print("=" * 65)
 
@@ -1074,7 +1099,7 @@ def main():
     # Blueprint Footer Metadata (Left-aligned) & Configurable Revision
     config_json_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "config.json")
     born_on_date = TELEMETRY.get("actualGeneralAssemblyDate", "2026-01-01")
-    footer_edition = "RIVIAN R2"
+    footer_edition = TELEMETRY["vehicleName"]
     vehicle_name = ""
     if os.path.exists(config_json_path):
         try:

@@ -104,7 +104,19 @@ Rather than signing the frame into your primary Rivian account, I strongly recom
 └── config.example.json
 ```
 
-### Notes on Adapting for Another Vehicle (e.g., R1S or R1T)
+### Choosing a Vehicle (R2 or R1T)
+The setup wizard detects your Rivian's model and uploads the matching blueprint. Vehicle profiles live in `tools/vehicles.py`, and every tool picks one the same way: `--vehicle <key>` on the command line, then the `FRAME_VEHICLE` environment variable, then `"vehicle_model"` in `config.json`, then the R2 default.
+
+```bash
+python setup_frame.py --vehicle r1t                        # set up a frame for an R1T
+python tools/generate_mockup.py --vehicle r1t              # desktop preview in local/previews/
+python tools/build_assets.py --vehicle r1t --build-only    # rebuild blueprints without deploying
+```
+
+Each vehicle's pre-built blueprints are kept apart so building one never overwrites another: the R2's are in `device/assets/`, the R1T's in `device/assets/r1t/`.
+
+### Notes on Adapting for Another Vehicle (e.g., R1S)
+To add one, create a profile in `tools/vehicles.py` listing its wireframe and callout targets (the R2 values in `tools/generate_mockup.py` are the base), then build its assets with `--vehicle <key>`. The steps below describe the layout work using the R2 values as the example.
 Swapping in a different vehicle takes a little layout work—it's not just dropping in any image:
 1. **Wireframe sizing**: Create a side-profile wireframe PNG sized to match the layout (`assets/wireframes/r2_wireframe.png` is `1130 × 430` px) and point `CONFIG["wireframe_file"]` in `tools/generate_mockup.py` to it.
 2. **Reposition leader-line targets**: Update `CONFIG["terminal_dots"]` in `tools/generate_mockup.py` so each callout line points to the right spot on your vehicle (instrument cluster, cabin window, battery pack, charge port—which is at the front on an R1S/R1T vs. the rear on an R2—and the front/rear wheels).

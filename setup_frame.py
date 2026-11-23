@@ -31,6 +31,9 @@ TEST_CONFIG_PATH = os.path.join(REPO_ROOT, "local", "test_config.json")
 DEVICE_DIR = os.path.join(REPO_ROOT, "device")
 DEVICE_CONFIG_PATH = os.path.join(DEVICE_DIR, "config.json")
 DEVICE_ASSETS_DIR = os.path.join(DEVICE_DIR, "assets")
+
+sys.path.insert(0, os.path.join(REPO_ROOT, "tools"))
+import vehicles  # noqa: E402  (vehicle profiles shared with the asset tools)
 FIRMWARE_PATH = os.path.join(REPO_ROOT, "firmware", "inkplate-firmware.bin")
 
 RIVIAN_URL = "https://rivian.com/api/gql/gateway/graphql"
@@ -127,6 +130,32 @@ def load_existing_config() -> dict:
     return {}
 
 
+def vehicle_key(cfg: dict) -> str:
+    """The vehicle profile this frame is set up for (defaults to the R2)."""
+    return vehicles.normalize(cfg.get("vehicle_model")) or vehicles.DEFAULT_VEHICLE
+
+
+def prompt_vehicle(cfg: dict) -> str:
+    """Asks which vehicle blueprint to use, defaulting to the one detected on the Rivian account."""
+    keys = list(vehicles.VEHICLES)
+    default = vehicle_key(cfg)
+    while True:
+        raw = prompt_str(f"  Vehicle blueprint ({' / '.join(keys)})", default)
+        key = vehicles.normalize(raw)
+        if key:
+            return key
+        print(f"  Please enter one of: {', '.join(keys)}")
+
+
+def text_default(cfg: dict, field: str, key: str) -> str:
+    """Keeps the user's saved text, unless it is just another vehicle's default."""
+    saved = cfg.get(field)
+    other_defaults = {v[field] for k, v in vehicles.VEHICLES.items() if k != key}
+    if not saved or saved in other_defaults:
+        return vehicles.profile(key)[field]
+    return saved
+
+
 def save_configs(cfg: dict, dry_run: bool = False) -> None:
     if dry_run:
         os.makedirs(os.path.dirname(TEST_CONFIG_PATH), exist_ok=True)
@@ -150,9 +179,11 @@ def save_configs(cfg: dict, dry_run: bool = False) -> None:
         "low_tire_psi_threshold": cfg.get("low_tire_psi_threshold", 32.0),
         "vehicle_id": cfg.get("vehicle_id", ""),
         "vehicle_name": cfg.get("vehicle_name", ""),
-        "footer_edition": cfg.get("footer_edition", "RIVIAN R2 LAUNCH EDITION"),
-        "drawing_number": cfg.get("drawing_number", "R2-EV-01"),
+        "vehicle_model": vehicle_key(cfg),
+        "footer_edition": cfg.get("footer_edition") or vehicles.profile(vehicle_key(cfg))["footer_edition"],
+        "drawing_number": cfg.get("drawing_number") or vehicles.profile(vehicle_key(cfg))["drawing_number"],
         "revision": cfg.get("revision", "REV 1.0"),
+        "charger_card_first": bool(vehicles.profile(vehicle_key(cfg)).get("charger_card_first", False)),
         "active_page": cfg.get("active_page", 1),
         "actual_general_assembly_date": cfg.get("actual_general_assembly_date", ""),
         "refresh_token": cfg.get("refresh_token"),
@@ -433,6 +464,11 @@ def rivian_login(cfg: dict, dry_run: bool = False) -> dict:
             cfg["vehicle_id"] = str(chosen.get("id") or "")
             cfg["vehicle_name"] = str(chosen.get("name") or "")
             cfg["actual_general_assembly_date"] = str(vi.get("actualGeneralAssemblyDate") or "")
+            detected = vehicles.normalize(vi.get("model"))
+            if detected:
+                cfg["vehicle_model"] = detected
+            elif vi.get("model"):
+                print(f"  Note: No blueprint for the {vi.get('model')} yet; you can pick the closest one in the next step.")
             print(f"  ✓ Selected vehicle: {cfg['vehicle_name'] or vi.get('model', 'Rivian')} (Born On: {cfg['actual_general_assembly_date'] or 'N/A'})")
     except Exception as e:
         print(f"  Note: Could not auto-list vehicles right now ({e}); the frame will auto-discover on first boot.")
@@ -480,9 +516,12 @@ def configure_preferences(cfg: dict, dry_run: bool = False) -> dict:
         int(cfg.get("quiet_hours_end", 5)),
     )
 
+    print("\n  Which Rivian is this frame for? (press Enter to accept the detected model)")
+    cfg["vehicle_model"] = prompt_vehicle(cfg)
+
     print("\n  Blueprint footer & header text (press Enter to accept defaults):")
-    cfg["footer_edition"] = prompt_str("  Footer edition label", cfg.get("footer_edition") or "RIVIAN R2 LAUNCH EDITION")
-    cfg["drawing_number"] = prompt_str("  Drawing number (top-right)", cfg.get("drawing_number") or "R2-EV-01")
+    cfg["footer_edition"] = prompt_str("  Footer edition label", text_default(cfg, "footer_edition", cfg["vehicle_model"]))
+    cfg["drawing_number"] = prompt_str("  Drawing number (top-right)", text_default(cfg, "drawing_number", cfg["vehicle_model"]))
     cfg["revision"] = prompt_str("  Revision label (top-right)", cfg.get("revision") or "REV 1.0")
 
     save_configs(cfg, dry_run=dry_run)
@@ -496,20 +535,24 @@ def configure_preferences(cfg: dict, dry_run: bool = False) -> dict:
 # ------------------------------------------------------------------------------
 # Step 3/3: Upload App & Assets to Inkplate 10
 # ------------------------------------------------------------------------------
-def deploy_to_inkplate(port: str, dry_run: bool = False) -> None:
+def deploy_to_inkplate(port: str, dry_run: bool = False, vehicle: str = vehicles.DEFAULT_VEHICLE) -> None:
     banner("Step 3/3: Deploy to Inkplate 10")
+    blueprint_dir = vehicles.assets_dir(vehicle)
+    print(f"Blueprint: {vehicles.profile(vehicle)['name']}")
     files = [
         (TEST_CONFIG_PATH if dry_run else DEVICE_CONFIG_PATH, ":config.json"),
         (os.path.join(DEVICE_DIR, "inkplate_app.py"), ":inkplate_app.py"),
         (os.path.join(DEVICE_DIR, "main.py"), ":main.py"),
         (os.path.join(DEVICE_DIR, "rle_cache.py"), ":rle_cache.py"),
-        (os.path.join(DEVICE_ASSETS_DIR, "base_blueprint.png"), ":assets/base_blueprint.png"),
-        (os.path.join(DEVICE_ASSETS_DIR, "base_page2.png"), ":assets/base_page2.png"),
+        (os.path.join(blueprint_dir, "base_blueprint.png"), ":assets/base_blueprint.png"),
+        (os.path.join(blueprint_dir, "base_page2.png"), ":assets/base_page2.png"),
         (os.path.join(DEVICE_ASSETS_DIR, "display_fonts.py"), ":assets/display_fonts.py"),
     ]
     for src, _ in files:
         if not os.path.exists(src):
             print(f"  ERROR: Missing required file: {src}")
+            if src.startswith(blueprint_dir):
+                print(f"  Build this vehicle's blueprints with: python tools/build_assets.py --vehicle {vehicle} --build-only")
             sys.exit(1)
 
     if dry_run:
@@ -562,6 +605,11 @@ def main() -> None:
         action="store_true",
         help="Run through all prompts and save local/test_config.json without flashing or calling Rivian APIs.",
     )
+    parser.add_argument(
+        "--vehicle",
+        choices=list(vehicles.VEHICLES),
+        help="Vehicle blueprint to set up (default: the model detected on your Rivian account, else r2).",
+    )
     args = parser.parse_args()
     dry_run = args.dry_run
 
@@ -586,10 +634,13 @@ def main() -> None:
         print(f"\n  [!] Rivian sign-in error: {e}")
         sys.exit(1)
 
+    if args.vehicle:
+        cfg["vehicle_model"] = args.vehicle
+
     cfg = configure_preferences(cfg, dry_run=dry_run)
 
     if port:
-        deploy_to_inkplate(port, dry_run=dry_run)
+        deploy_to_inkplate(port, dry_run=dry_run, vehicle=vehicle_key(cfg))
         if dry_run:
             banner("Dry Run Complete!")
             print(f"Review your generated test config at: {os.path.relpath(TEST_CONFIG_PATH, REPO_ROOT)}")

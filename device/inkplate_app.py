@@ -658,6 +658,7 @@ def render_dashboard_on_inkplate(display, telemetry: dict, sync_str: str, status
         raw_rev = "REV 1.0"
         low_batt_thresh = 15
         low_tire_thresh = 32.0
+    charger_first = bool(cfg_now.get("charger_card_first", False))
     _stamp_footer(display, cfg_now, draw_text, measure_text)
     dwg_str = raw_dwg if raw_dwg.upper().startswith("DWG") else f"DWG NO. {raw_dwg}"
     rev_str = raw_rev if raw_rev.upper().startswith("REV") else f"REV {raw_rev}"
@@ -685,16 +686,21 @@ def render_dashboard_on_inkplate(display, telemetry: dict, sync_str: str, status
         w2 = measure_text(meta_line2, size=19)
         draw_text(display, 1164 - w2, 71, meta_line2, size=19, ink_level=0)
 
-    # 3. Card 01 // BATTERY LEVEL (X=36, Y=120)
+    # Card slots: Battery Level sits at X=36 and Charger at X=948, unless
+    # 'charger_card_first' is set (front charge port, e.g. R1T), which swaps them
+    # to match a base blueprint built with the same option.
+    batt_x, chg_x = (948, 36) if charger_first else (36, 948)
+
+    # 3. BATTERY LEVEL card (X=batt_x, Y=120)
     pct = max(0, min(100, int(round(float(telemetry.get("batteryLevel") or 0)))))
     dte_mi = int(round(float(telemetry.get("distanceToEmpty") or 0) * KM_TO_MILES))
     if pct < low_batt_thresh:
-        draw_reversed_text(display, 36 + 10, 120 + 46, f"{pct}%", size=26, pad_x=5, pad_y=3)
+        draw_reversed_text(display, batt_x + 10, 120 + 46, f"{pct}%", size=26, pad_x=5, pad_y=3)
     else:
-        draw_text(display, 36 + 10, 120 + 46, f"{pct}%", size=26, ink_level=0)
+        draw_text(display, batt_x + 10, 120 + 46, f"{pct}%", size=26, ink_level=0)
 
     # Fill proportional battery bargraph + 25/50/75% scale ticks
-    bar_x, bar_y, bar_w, bar_h = 36 + 82, 120 + 46, 114, 20
+    bar_x, bar_y, bar_w, bar_h = batt_x + 82, 120 + 46, 114, 20
     fill_w = int((bar_w - 6) * (pct / 100.0))
     if hasattr(display, "fill_rect") and fill_w > 0:
         display.fill_rect(bar_x + 3, bar_y + 3, fill_w, bar_h - 6, 0)
@@ -708,7 +714,7 @@ def render_dashboard_on_inkplate(display, telemetry: dict, sync_str: str, status
         for by in range(bar_y + 3, bar_y + bar_h - 3):
             set_px(tx, by, tick_c)
             set_px(tx + 1, by, tick_c)
-    draw_text(display, 36 + 10, 120 + 88, f"EST. RANGE: {dte_mi} MI", size=18, ink_level=0)
+    draw_text(display, batt_x + 10, 120 + 88, f"EST. RANGE: {dte_mi} MI", size=18, ink_level=0)
 
     # 4. Card 02 // ODOMETER (X=264, Y=120)
     odo_mi = int(round(float(telemetry.get("vehicleMileage") or 0) * METERS_TO_MILES))
@@ -736,7 +742,7 @@ def render_dashboard_on_inkplate(display, telemetry: dict, sync_str: str, status
     draw_text(display, 720 + 138, 120 + 49, f"{avg_f}°F", size=20, ink_level=0)
     draw_text(display, 720 + 10, 120 + 88, f"12V STATUS: {v12}", size=18, ink_level=0)
 
-    # 7. Card 05 // CHARGER (X=948, Y=120)
+    # 7. CHARGER card (X=chg_x, Y=120)
     raw_chg = str(telemetry.get("chargerState") or "charging_ready").lower()
     batt_lim = telemetry.get("batteryLimit")
     lim_int = int(round(float(batt_lim))) if batt_lim is not None else None
@@ -775,9 +781,9 @@ def render_dashboard_on_inkplate(display, telemetry: dict, sync_str: str, status
             chg_sub = "WAITING FOR SCHEDULE"
     else:
         chg_hero, chg_sub = "DISCONNECTED", "CHARGE PORT READY"
-    draw_text(display, 948 + 10, 120 + 46, chg_hero, size=26, ink_level=0)
+    draw_text(display, chg_x + 10, 120 + 46, chg_hero, size=26, ink_level=0)
     chg_sub_sz = 17 if measure_text(chg_sub, size=18) > 196 else 18
-    draw_text(display, 948 + 10, 120 + 88, chg_sub, size=chg_sub_sz, ink_level=0)
+    draw_text(display, chg_x + 10, 120 + 88, chg_sub, size=chg_sub_sz, ink_level=0)
 
     # 8. Tire Pressures (Underbody Badges at Y=660)
     tire_positions = [

@@ -7,11 +7,14 @@ MicroPython runtime modules, and config.json for the Inkplate 10 (1200x820).
 import json
 import os
 import shutil
+import sys
 from PIL import Image, ImageDraw
 
+import vehicles
 from generate_mockup import (
     CONFIG,
     TELEMETRY,
+    VEHICLE,
     draw_aa_polyline,
     draw_blueprint_frame,
     draw_crisp_text,
@@ -23,7 +26,8 @@ from generate_mockup import (
 
 WORKSPACE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SD_STAGING_DIR = os.path.join(WORKSPACE_DIR, "device")
-SD_ASSETS_DIR = os.path.join(SD_STAGING_DIR, "assets")
+SD_ASSETS_DIR = os.path.join(SD_STAGING_DIR, "assets")   # shared files (fonts) + R2 base blueprints
+VEHICLE_ASSETS_DIR = vehicles.assets_dir(VEHICLE)         # this vehicle's base blueprints
 SD_VOLUME_PATH = "/Volumes/INKPLATE"
 
 
@@ -96,6 +100,11 @@ def build_base_blueprint() -> Image.Image:
         ("battery12v", "04 // BATTERY STATE"),
         ("charger",    "05 // CHARGER"),
     ]
+    # Front charge port (e.g. R1T): swap the first and last cards and renumber them
+    battery_idx = 0
+    if CONFIG.get("charger_card_first", False):
+        battery_idx = 4
+        card_defs[0], card_defs[4] = ("charger", "01 // CHARGER"), (None, "05 // BATTERY LEVEL")
     font_sec = get_architect_font(font_cfg.get("card_header", 18), bold=True)
 
     # Anti-aliased leader lines first
@@ -120,8 +129,8 @@ def build_base_blueprint() -> Image.Image:
         draw.line([(cx + 8, cy + 34), (cx + cw - 8, cy + 34)], fill=colors["light_gray"], width=2)
         draw_crisp_text(draw, (cx + 10, cy + 8), label, font_sec, fill=colors["dark_gray"])
 
-        # Static battery bar outline on Card 1
-        if i == 0:
+        # Static battery bar outline on the Battery Level card
+        if i == battery_idx:
             bar_x = cx + 82
             bar_y = cy + 46
             bar_w = cw - 102
@@ -422,9 +431,11 @@ def build_sd_config(out_cfg_path: str) -> None:
         "low_tire_psi_threshold": src.get("low_tire_psi_threshold", 32.0),
         "vehicle_id": src.get("vehicle_id", ""),
         "vehicle_name": src.get("vehicle_name", ""),
-        "footer_edition": src.get("footer_edition", "RIVIAN R2"),
-        "drawing_number": src.get("drawing_number", "R2-EPD-01"),
+        "vehicle_model": VEHICLE,
+        "footer_edition": src.get("footer_edition") or vehicles.profile(VEHICLE)["name"],
+        "drawing_number": src.get("drawing_number") or vehicles.profile(VEHICLE)["drawing_number"],
         "revision": src.get("revision", "REV 1.0"),
+        "charger_card_first": bool(CONFIG.get("charger_card_first", False)),
         "active_page": src.get("active_page", 1),
         "actual_general_assembly_date": src.get("actual_general_assembly_date", ""),
         "refresh_token": src.get("refresh_token"),
@@ -474,20 +485,23 @@ def _find_mpremote():
 
 
 def main() -> None:
+    build_only = "--build-only" in sys.argv[1:]
     os.makedirs(SD_ASSETS_DIR, exist_ok=True)
+    os.makedirs(VEHICLE_ASSETS_DIR, exist_ok=True)
+    print(f"Vehicle: {TELEMETRY['vehicleName']}  ->  {os.path.relpath(VEHICLE_ASSETS_DIR, WORKSPACE_DIR)}")
 
     print("[1/5] Generating 1200x820 static base blueprint templates (Page 1 & Page 2)...")
     base_img = build_base_blueprint()
-    bmp_path = os.path.join(SD_ASSETS_DIR, "base_blueprint.bmp")
-    png_path = os.path.join(SD_ASSETS_DIR, "base_blueprint.png")
-    raw3_path = os.path.join(SD_ASSETS_DIR, "base_blueprint.3bit")
+    bmp_path = os.path.join(VEHICLE_ASSETS_DIR, "base_blueprint.bmp")
+    png_path = os.path.join(VEHICLE_ASSETS_DIR, "base_blueprint.png")
+    raw3_path = os.path.join(VEHICLE_ASSETS_DIR, "base_blueprint.3bit")
     base_img.save(bmp_path, format="BMP")
     base_img.save(png_path, format="PNG")
     save_packed_3bit(base_img, raw3_path)
 
     from generate_page2_mockup import build_base_page2
     page2_img = build_base_page2()
-    page2_png_path = os.path.join(SD_ASSETS_DIR, "base_page2.png")
+    page2_png_path = os.path.join(VEHICLE_ASSETS_DIR, "base_page2.png")
     page2_img.save(page2_png_path, format="PNG")
     print(f"      Saved {png_path}, {page2_png_path} ({os.path.getsize(page2_png_path):,} bytes), and {raw3_path}.")
 
@@ -495,6 +509,10 @@ def main() -> None:
     font_py_path = os.path.join(SD_ASSETS_DIR, "display_fonts.py")
     build_micropython_font_module(font_py_path)
     print(f"      Saved {font_py_path} ({os.path.getsize(font_py_path):,} bytes).")
+
+    if build_only:
+        print("[3/5] --build-only: skipped config.json, SD card copy and USB deploy.")
+        return
 
     print("[3/5] Generating SD card config.json...")
     cfg_out_path = os.path.join(SD_STAGING_DIR, "config.json")
@@ -510,8 +528,9 @@ def main() -> None:
             py_src = os.path.join(SD_STAGING_DIR, py_name)
             if os.path.exists(py_src):
                 shutil.copy2(py_src, os.path.join(SD_VOLUME_PATH, py_name))
-        for fname in ("base_blueprint.bmp", "base_blueprint.png", "base_blueprint.3bit", "base_page2.png", "display_fonts.py"):
-            shutil.copy2(os.path.join(SD_ASSETS_DIR, fname), os.path.join(vol_assets, fname))
+        for fname in ("base_blueprint.bmp", "base_blueprint.png", "base_blueprint.3bit", "base_page2.png"):
+            shutil.copy2(os.path.join(VEHICLE_ASSETS_DIR, fname), os.path.join(vol_assets, fname))
+        shutil.copy2(font_py_path, os.path.join(vol_assets, "display_fonts.py"))
         print(f"      Successfully populated '{SD_VOLUME_PATH}'!")
     else:
         print(f"[4/5] Volume '{SD_VOLUME_PATH}' not mounted; files staged in '{SD_STAGING_DIR}'.")
