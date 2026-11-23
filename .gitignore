@@ -1,0 +1,12 @@
+# Local secrets, private files, backups, and scratch outputs
+config.json
+device/config.json
+device/telemetry_log.jsonl
+local/
+backups/
+
+# Python & OS
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
