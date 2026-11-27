@@ -47,7 +47,7 @@ VEHICLES = {
             "odometer":   (436, 436),  # Instrument cluster, behind the steering wheel
             "climate":    (505, 400),  # Middle of driver's window
             "battery12v": (720, 637),  # Battery pack between the frame rails, under the cab
-            "charger":    (135, 487),  # Charge port door on front driver-side fender
+            "charger":    (98, 527),   # Charge port door: panel below the headlight, front driver side
 
             "tire_fl":    (296, 672),  # Front L -> Front tire sidewall
             "tire_fr":    (275, 708),  # Front R -> Lower front tire
